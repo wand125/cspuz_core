@@ -394,3 +394,321 @@ impl SimpleCustomConstraint for PathPropagator {
         }
     }
 }
+
+/// Lazy G2 check. Unlabelled segments remain part of the free area: excluding
+/// them could hide a bridge between regions and make the planarity test unsound.
+pub(super) struct PlanarityPropagator {
+    path: PathPropagator,
+}
+
+impl PlanarityPropagator {
+    pub(super) fn new(h: usize, w: usize, clues: &[Vec<Option<i32>>]) -> Self {
+        Self {
+            path: PathPropagator::new(h, w, clues),
+        }
+    }
+
+    fn crossing(&self) -> bool {
+        let p = &self.path;
+        if !p.conflicts.is_empty() {
+            return false;
+        }
+        let n = p.height * p.width;
+        let pitch = p.width + 2;
+        let mut tags = vec![-1i32; (p.height + 2) * pitch];
+        let offsets = [0usize.wrapping_sub(pitch), 1, pitch, usize::MAX];
+        let index = |v: usize| (v / p.width + 1) * pitch + v % p.width + 1;
+        let mut clues_in_root = vec![0; n];
+        for v in 0..n {
+            if p.clue[v].is_some() {
+                clues_in_root[p.root(v)] += 1;
+            }
+        }
+        let mut ends = vec![];
+        let mut exits = vec![0u8; n];
+        for v in 0..n {
+            let r = p.root(v);
+            if clues_in_root[r] == 0 {
+                if p.vertex_state[v] != VertexState::NotTraversed {
+                    tags[index(v)] = 0;
+                }
+                continue;
+            }
+            let degree = p.adjacent[v]
+                .iter()
+                .filter(|&&(_, e)| p.edge_state[e] == EdgeState::Line)
+                .count();
+            if clues_in_root[r] == 1
+                && ((p.clue[v].is_some() && degree == 0) || (p.clue[v].is_none() && degree == 1))
+            {
+                ends.push(v);
+                tags[index(v)] = v as i32 + 1;
+                for &(u, e) in &p.adjacent[v] {
+                    if p.edge_state[e] == EdgeState::Unknown {
+                        let delta = index(u).wrapping_sub(index(v));
+                        let d = offsets.iter().position(|&o| o == delta).unwrap();
+                        exits[v] |= 1 << d;
+                    }
+                }
+            }
+        }
+        if ends.len() < 4 {
+            return false;
+        }
+        // Geometric connectivity is deliberately an overapproximation: even a
+        // NoLine edge inside the free area does not split that area.
+        let mut components = vec![0; tags.len()];
+        let mut queue = vec![];
+        let mut next_component = 0;
+        for v in 0..n {
+            let start = index(v);
+            if tags[start] != 0 || components[start] != 0 {
+                continue;
+            }
+            next_component += 1;
+            components[start] = next_component;
+            queue.clear();
+            queue.push(start);
+            let mut head = 0;
+            while head < queue.len() {
+                let c = queue[head];
+                head += 1;
+                for &offset in &offsets {
+                    let a = c.wrapping_add(offset);
+                    if tags[a] == 0 && components[a] == 0 {
+                        components[a] = next_component;
+                        queue.push(a);
+                    }
+                }
+            }
+        }
+        let mut confined = vec![0; n];
+        for &v in &ends {
+            if exits[v] == 0 {
+                continue;
+            }
+            let mut component = 0;
+            for d in 0..4 {
+                if exits[v] & (1 << d) == 0 {
+                    continue;
+                }
+                let neighbor = index(v).wrapping_add(offsets[d]);
+                let c = components[neighbor];
+                if c == 0 || (component != 0 && component != c) {
+                    component = 0;
+                    break;
+                }
+                component = c;
+            }
+            confined[v] = component;
+        }
+        let value = |v: usize| p.clue[p.terminal[p.root(v)].unwrap()].unwrap();
+        let mut pairs = vec![];
+        for (i, &a) in ends.iter().enumerate() {
+            if confined[a] == 0 {
+                continue;
+            }
+            for &b in &ends[i + 1..] {
+                if confined[a] == confined[b]
+                    && value(a) == value(b)
+                    && p.clue.iter().filter(|&&c| c == Some(value(a))).count() == 2
+                {
+                    pairs.push((a, b));
+                }
+            }
+        }
+        if pairs.len() < 2 {
+            return false;
+        }
+        let mut seen = vec![0u8; n];
+        for &end in &ends {
+            if confined[end] == 0 {
+                continue;
+            }
+            for direction in 0..4 {
+                if exits[end] & !seen[end] & (1 << direction) == 0 {
+                    continue;
+                }
+                let start = index(end).wrapping_add(offsets[direction]);
+                let start_d = (direction + 3) & 3;
+                let (mut c, mut d) = (start, start_d);
+                let mut contacts = vec![];
+                let mut masks = vec![0u8; n];
+                let mut closed = false;
+                // Follow the region boundary with the right-hand rule.
+                for _ in 0..=4 * n {
+                    let a = c.wrapping_add(offsets[d]);
+                    let (occupied, contact_dir);
+                    if tags[a] == 0 {
+                        let side = (d + 1) & 3;
+                        let b = a.wrapping_add(offsets[side ^ 2]);
+                        if tags[b] == 0 {
+                            contact_dir = d;
+                            c = b;
+                            d = (d + 3) & 3;
+                            occupied = c.wrapping_add(offsets[contact_dir ^ 2]);
+                        } else {
+                            c = a;
+                            contact_dir = side;
+                            occupied = b;
+                        }
+                    } else {
+                        d = (d + 1) & 3;
+                        contact_dir = (d + 1) & 3;
+                        occupied = a;
+                    }
+                    if tags[occupied] > 0 {
+                        let v = tags[occupied] as usize - 1;
+                        let bit = 1 << contact_dir;
+                        if exits[v] & bit != 0 {
+                            contacts.push(v);
+                            masks[v] ^= bit;
+                            seen[v] |= bit;
+                        }
+                    }
+                    if (c, d) == (start, start_d) {
+                        closed = true;
+                        break;
+                    }
+                }
+                if !closed {
+                    continue;
+                }
+                let boundary_pairs: Vec<_> = pairs
+                    .iter()
+                    .copied()
+                    .filter(|&(a, b)| masks[a] == exits[a] && masks[b] == exits[b])
+                    .collect();
+                for (i, &(a, aa)) in boundary_pairs.iter().enumerate() {
+                    for &(b, bb) in &boundary_pairs[i + 1..] {
+                        if value(a) == value(b) {
+                            continue;
+                        }
+                        let mut order = vec![];
+                        for &v in &contacts {
+                            if [a, aa, b, bb].contains(&v) && order.last() != Some(&v) {
+                                order.push(v);
+                            }
+                        }
+                        if order.len() > 1 && order.first() == order.last() {
+                            order.pop();
+                        }
+                        if order.len() == 4
+                            && (0..4).all(|i| value(order[i]) != value(order[(i + 1) % 4]))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+impl SimpleCustomConstraint for PlanarityPropagator {
+    fn initialize_sat(&mut self, inputs: usize) {
+        self.path.initialize_sat(inputs);
+    }
+    fn lazy_propagation(&self) -> bool {
+        true
+    }
+    fn notify(&mut self, index: usize, value: bool) {
+        self.path.notify(index, value);
+    }
+    fn undo(&mut self) {
+        self.path.undo();
+    }
+    fn find_inconsistency(&mut self) -> Option<Vec<(usize, bool)>> {
+        if !self.crossing() {
+            return None;
+        }
+        // Conservative certificate: all known edges preserve the four clue paths,
+        // every labelled boundary blocker, and every forbidden port exit. False
+        // passed literals preserve unused blocking cells. No unlabelled traversed
+        // cell was excluded from a region. All entries are currently true literals.
+        let mut reason = vec![];
+        for (e, &state) in self.path.edge_state.iter().enumerate() {
+            match state {
+                EdgeState::Line => reason.push((e, true)),
+                EdgeState::NoLine => reason.push((e, false)),
+                EdgeState::Unknown => (),
+            }
+        }
+        for (v, &state) in self.path.vertex_state.iter().enumerate() {
+            if state == VertexState::NotTraversed {
+                reason.push((self.path.edges.len() + v, false));
+            }
+        }
+        Some(reason)
+    }
+}
+
+#[cfg(test)]
+mod planarity_tests {
+    use super::*;
+
+    fn four_ports(escape: bool, alternating: bool) -> PlanarityPropagator {
+        let mut clues = vec![vec![None; 7]; 7];
+        for (y, x, v) in [
+            (1, 3, 1),
+            (3, 5, 2),
+            (5, 3, if alternating { 1 } else { 2 }),
+            (3, 1, if alternating { 2 } else { 1 }),
+        ] {
+            clues[y][x] = Some(v);
+        }
+        let mut p = PlanarityPropagator::new(7, 7, &clues);
+        let free = |v: usize| {
+            let (y, x) = (v / 7, v % 7);
+            clues[y][x].is_some()
+                || ((2..=4).contains(&y) && (2..=4).contains(&x))
+                || (escape && v == 3)
+        };
+        for e in 0..p.path.edges.len() {
+            let (a, b) = p.path.edges[e];
+            if !free(a) || !free(b) {
+                p.notify(e, false);
+            }
+        }
+        for v in 0..49 {
+            if !free(v) {
+                p.notify(p.path.edges.len() + v, false);
+            }
+        }
+        p
+    }
+
+    #[test]
+    fn test_numlin_g2_boundary_reason_and_undo() {
+        let mut p = four_ports(false, true);
+        let reason = p.find_inconsistency().expect("alternating confined pairs");
+        assert!(!reason.is_empty());
+        // The certificate alone reproduces the geometric contradiction.
+        let mut replay = PlanarityPropagator::new(
+            7,
+            7,
+            &p.path
+                .clue
+                .chunks(7)
+                .map(|r| r.to_vec())
+                .collect::<Vec<_>>(),
+        );
+        for &(i, v) in &reason {
+            replay.notify(i, v);
+        }
+        assert!(replay.find_inconsistency().is_some());
+        for _ in 0..reason.len() {
+            replay.undo();
+        }
+        assert!(replay.find_inconsistency().is_none());
+        assert!(
+            four_ports(true, true).find_inconsistency().is_none(),
+            "escape prevents confinement"
+        );
+        assert!(
+            four_ports(false, false).find_inconsistency().is_none(),
+            "nonalternating pairs"
+        );
+    }
+}

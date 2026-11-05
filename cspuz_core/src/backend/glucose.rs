@@ -20,6 +20,15 @@ extern "C-unwind" {
     fn Glucose_NewNamedVar(solver: *mut Opaque, name: *const c_char) -> i32;
     fn Glucose_AddClause(solver: *mut Opaque, lits: *const Lit, n_lits: i32) -> i32;
     fn Glucose_Solve(solver: *mut Opaque) -> i32;
+    fn Glucose_SolveWithAssumptions(solver: *mut Opaque, lits: *const Lit, n: i32) -> i32;
+    fn Glucose_EncodingFingerprint(solver: *mut Opaque) -> u64;
+    fn Glucose_NumLearnts(solver: *mut Opaque) -> i32;
+    fn Glucose_GetLearnt(solver: *mut Opaque, i: i32, out: *mut Lit) -> i32;
+    fn Glucose_AddLearnt(solver: *mut Opaque, lits: *const Lit, n: i32) -> i32;
+    fn Glucose_TrackDependencies(solver: *mut Opaque);
+    fn Glucose_AddCubeUnit(solver: *mut Opaque, lit: Lit) -> i32;
+    fn Glucose_GetIndependentLearnt(solver: *mut Opaque, i: i32, out: *mut Lit, max_size: i32, max_lbd: u32) -> i32;
+    fn Glucose_DependencyLearntCount(solver: *mut Opaque, independent: i32) -> u64;
     fn Glucose_NumVar(solver: *mut Opaque) -> i32;
     fn Glucose_GetModelValueVar(solver: *mut Opaque, var: i32) -> i32;
     fn Glucose_SetPolarity(solver: *mut Opaque, var: i32, polarity: i32);
@@ -62,7 +71,26 @@ extern "C-unwind" {
     fn Glucose_SolverStats_conflicts(solver: *mut Opaque) -> u64;
     fn Glucose_Set_random_seed(solver: *mut Opaque, random_seed: f64);
     fn Glucose_Set_rnd_init_act(solver: *mut Opaque, rnd_init_act: i32);
+    fn Glucose_Set_random_var_freq(solver: *mut Opaque, freq: f64);
+    fn Glucose_Set_reduce_db(solver: *mut Opaque, first: i32, inc: i32);
+    fn Glucose_Set_no_learn(solver: *mut Opaque, value: i32);
+    fn Glucose_SetConfBudget(solver: *mut Opaque, budget: i64);
+    fn Glucose_BudgetOff(solver: *mut Opaque);
+    fn Glucose_Interrupt(solver: *mut Opaque);
+    fn Glucose_ClearInterrupt(solver: *mut Opaque);
     fn Glucose_Set_dump_analysis_info(solver: *mut Opaque, value: i32);
+}
+
+/// See `Solver::interrupt_handle`. Only sets glucose's `asynch_interrupt` flag.
+#[derive(Clone, Copy)]
+pub struct InterruptHandle {
+    ptr: usize,
+}
+
+impl InterruptHandle {
+    pub fn interrupt(&self) {
+        unsafe { Glucose_Interrupt(self.ptr as *mut Opaque) }
+    }
 }
 
 pub struct Solver {
@@ -373,6 +401,21 @@ impl Solver {
         }
     }
 
+    /// Fraction of decisions made on a random variable (0 = pure activity order).
+    pub fn set_random_var_freq(&mut self, freq: f64) {
+        unsafe { Glucose_Set_random_var_freq(self.ptr, freq) }
+    }
+
+    /// Experiment: discard all learnt clauses (backjump + flip as a decision).
+    pub fn set_no_learn(&mut self, value: bool) {
+        unsafe { Glucose_Set_no_learn(self.ptr, value as i32) }
+    }
+
+    /// Learnt database reduction schedule (first, inc); small values keep few learnt clauses.
+    pub fn set_reduce_db(&mut self, first: i32, inc: i32) {
+        unsafe { Glucose_Set_reduce_db(self.ptr, first, inc) }
+    }
+
     pub fn set_rnd_init_act(&mut self, rnd_init_act: bool) {
         unsafe {
             Glucose_Set_rnd_init_act(self.ptr, if rnd_init_act { 1 } else { 0 });
@@ -394,6 +437,110 @@ impl Solver {
     pub fn solve_without_model(&mut self) -> bool {
         let res = unsafe { Glucose_Solve(self.ptr) };
         res != 0
+    }
+
+    /// Assumptions last for this call only; learned clauses remain in the solver.
+    pub fn solve_with_assumptions(&mut self, assumptions: &[Lit]) -> Option<Model<'_>> {
+        match self.solve_with_assumptions_limited(assumptions) {
+            Some(true) => Some(unsafe { self.model() }),
+            Some(false) => None,
+            None => panic!("unexpected resource limit in assumption solve"),
+        }
+    }
+
+    /// Like `solve_with_assumptions`, but returns `None` when the conflict budget set by
+    /// `set_conf_budget` runs out before the search finishes. The model is available through
+    /// `model()` only after `Some(true)`.
+    pub fn solve_with_assumptions_limited(&mut self, assumptions: &[Lit]) -> Option<bool> {
+        self.validate_lits(assumptions);
+        assert!(assumptions.len() <= i32::MAX as usize);
+        let res = unsafe {
+            Glucose_SolveWithAssumptions(self.ptr, assumptions.as_ptr(), assumptions.len() as i32)
+        };
+        match res {
+            1 => Some(true),
+            0 => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Limit the following assumption solves to `budget` more conflicts in total.
+    pub fn set_conf_budget(&mut self, budget: i64) {
+        unsafe { Glucose_SetConfBudget(self.ptr, budget) }
+    }
+
+    pub fn budget_off(&mut self) {
+        unsafe { Glucose_BudgetOff(self.ptr) }
+    }
+
+    /// Clear a pending asynchronous interrupt before the next solve.
+    pub fn clear_interrupt(&mut self) {
+        unsafe { Glucose_ClearInterrupt(self.ptr) }
+    }
+
+    /// A handle that can interrupt this solver's current `solve_with_assumptions_limited`
+    /// from another thread (the call then returns `None`). The handle must not outlive the solver.
+    pub fn interrupt_handle(&mut self) -> InterruptHandle {
+        InterruptHandle { ptr: self.ptr as usize }
+    }
+
+    /// A guard against sharing raw literal IDs across different encodings.
+    /// Call before the first solve, while only the original formula is present.
+    pub fn encoding_fingerprint(&self) -> u64 {
+        unsafe { Glucose_EncodingFingerprint(self.ptr) }
+    }
+
+    pub fn num_learnts(&self) -> usize {
+        unsafe { Glucose_NumLearnts(self.ptr) as usize }
+    }
+
+    /// Enable tracking before adding any cube units. Existing root facts are global.
+    pub fn track_dependencies(&mut self) {
+        unsafe { Glucose_TrackDependencies(self.ptr) }
+    }
+
+    /// Add a permanent local cube fact after `track_dependencies` was enabled.
+    pub fn add_cube_unit(&mut self, lit: Lit) -> bool {
+        self.validate_lits(&[lit]);
+        unsafe { Glucose_AddCubeUnit(self.ptr, lit) != 0 }
+    }
+
+    /// New independent retained clauses and learned units; imports are omitted.
+    /// max_lbd=0 disables that cap.
+    pub fn independent_learnts(&self, max_size: usize, max_lbd: u32) -> Vec<Vec<Lit>> {
+        assert!(max_size <= i32::MAX as usize);
+        let mut result = vec![];
+        for i in 0..self.num_learnts() {
+            let n = unsafe { Glucose_GetIndependentLearnt(self.ptr, i as i32, std::ptr::null_mut(), max_size as i32, max_lbd) };
+            if n < 0 { continue; }
+            let mut clause = vec![Lit(0); n as usize];
+            unsafe { Glucose_GetIndependentLearnt(self.ptr, i as i32, clause.as_mut_ptr(), max_size as i32, max_lbd); }
+            result.push(clause);
+        }
+        result
+    }
+
+    /// (All learned clauses, independent learned clauses), counted at creation.
+    pub fn dependency_learnt_counts(&self) -> (u64, u64) {
+        unsafe { (Glucose_DependencyLearntCount(self.ptr, 0), Glucose_DependencyLearntCount(self.ptr, 1)) }
+    }
+
+    /// Indices are valid until the next mutation/solve (Glucose can delete/reorder clauses).
+    pub fn get_learnt(&self, i: usize, out: &mut Vec<Lit>) {
+        assert!(i < self.num_learnts());
+        let n = unsafe { Glucose_GetLearnt(self.ptr, i as i32, std::ptr::null_mut()) };
+        assert!(n >= 0);
+        out.resize(n as usize, Lit(0));
+        unsafe {
+            Glucose_GetLearnt(self.ptr, i as i32, out.as_mut_ptr());
+        }
+    }
+
+    /// Caller must ensure the clause is implied by this solver's formula.
+    pub fn add_learnt(&mut self, lits: &[Lit]) -> bool {
+        self.validate_lits(lits);
+        assert!(lits.len() <= i32::MAX as usize);
+        unsafe { Glucose_AddLearnt(self.ptr, lits.as_ptr(), lits.len() as i32) != 0 }
     }
 
     pub(crate) unsafe fn model(&self) -> Model<'_> {
@@ -880,5 +1027,166 @@ mod tests {
             true
         ))));
         assert!(solver.solve().is_none());
+    }
+}
+
+#[cfg(test)]
+mod incremental_tests {
+    use super::*;
+    #[test]
+    fn root_custom_reasons_are_tagged_after_the_callback_returns() {
+        struct Implication { input: Lit, output: Lit, in_callback: bool }
+        unsafe impl<T: SolverManipulator> CustomPropagator<T> for Implication {
+            fn initialize(&mut self, solver: &mut T) -> bool {
+                unsafe { solver.add_watch(self.input); }
+                true
+            }
+            fn propagate(&mut self, solver: &mut T, _: Lit, _: i32) -> bool {
+                self.in_callback = true;
+                let ok = unsafe { solver.enqueue(self.output) };
+                self.in_callback = false;
+                ok
+            }
+            fn calc_reason(&mut self, _: &mut T, _: Option<Lit>, extra: Option<Lit>) -> Vec<Lit> {
+                assert!(!self.in_callback, "reentrant Rust callback");
+                let mut reason = vec![self.input];
+                reason.extend(extra);
+                reason
+            }
+            fn undo(&mut self, _: &mut T, _: Lit) {}
+        }
+        for dependent in [false, true] {
+            let mut solver = Solver::new();
+            let c = solver.new_var().as_lit(false);
+            let r = solver.new_var().as_lit(false);
+            let x = solver.new_var().as_lit(false);
+            let y = solver.new_var().as_lit(false);
+            let cube = solver.new_var().as_lit(false);
+            assert!(solver.add_custom_constraint(Box::new(Implication { input: c, output: r, in_callback: false })));
+            assert!(solver.add_clause(&[!r, x, y]));
+            assert!(solver.add_clause(&[!r, x, !y]));
+            solver.track_dependencies();
+            assert!(solver.add_cube_unit(cube));
+            if dependent { assert!(solver.add_cube_unit(c)); }
+            else { assert!(solver.add_clause(&[c])); }
+            assert!(solver.solve_without_model());
+            assert_eq!(solver.independent_learnts(30, 0).contains(&vec![x]), !dependent);
+            assert!(solver.dependency_learnt_counts().0 > 0);
+        }
+    }
+
+    #[test]
+    fn independent_units_are_exported_and_cube_units_stay_local() {
+        let mut solver = Solver::new();
+        let x = solver.new_var().as_lit(false);
+        let y = solver.new_var().as_lit(false);
+        let c = solver.new_var().as_lit(false);
+        let z = solver.new_var().as_lit(false);
+        let w = solver.new_var().as_lit(false);
+        for clause in [vec![x, y], vec![x, !y], vec![!c, z, w], vec![!c, z, !w]] {
+            assert!(solver.add_clause(&clause));
+        }
+        solver.track_dependencies();
+        assert!(solver.add_cube_unit(c));
+        assert!(solver.solve_without_model());
+        let clauses = solver.independent_learnts(30, 0);
+        assert!(clauses.contains(&vec![x]), "independent learned unit missing: {clauses:?}");
+        assert!(!clauses.contains(&vec![z]));
+        let (all, independent) = solver.dependency_learnt_counts();
+        assert!(all > independent && independent > 0);
+    }
+
+    #[test]
+    fn dependency_tagged_exports_follow_the_base_formula() {
+        let mut random = 0x8716_42d9u64;
+        let mut next = || {
+            random ^= random << 13;
+            random ^= random >> 7;
+            random ^= random << 17;
+            random
+        };
+        let mut exported = 0;
+        let mut dependent = 0;
+        for _ in 0..100 {
+            let mut solver = Solver::new();
+            let vars: Vec<_> = (0..10).map(|_| solver.new_var().as_lit(false)).collect();
+            let mut formula = vec![];
+            for _ in 0..32 {
+                let mut clause = vec![];
+                while clause.len() < 3 {
+                    let r = next();
+                    let lit = vars[(r % 10) as usize];
+                    if clause.iter().any(|p: &Lit| p.var() == lit.var()) { continue; }
+                    clause.push(if r & 16 == 0 { lit } else { !lit });
+                }
+                solver.add_clause(&clause);
+                formula.push(clause);
+            }
+            solver.track_dependencies();
+            solver.add_cube_unit(vars[0]);
+            solver.add_cube_unit(!vars[1]);
+            solver.solve_without_model();
+            let (all, independent) = solver.dependency_learnt_counts();
+            dependent += all - independent;
+            for clause in solver.independent_learnts(30, 0) {
+                exported += 1;
+                // Exhaust the original CNF, without the cube units.
+                for assignment in 0..1024 {
+                    let value = |lit: &Lit| ((assignment >> lit.var().index()) & 1 != 0) != (lit.0 & 1 != 0);
+                    if formula.iter().all(|c| c.iter().any(value)) {
+                        assert!(clause.iter().any(value), "invalid export {clause:?}");
+                    }
+                }
+            }
+        }
+        assert!(exported > 0, "must exercise independent exports");
+        assert!(dependent > 0, "must exercise cube-dependent learning");
+    }
+
+    #[test]
+    fn assumptions_are_temporary_and_learnts_can_be_copied() {
+        let mut a = Solver::new();
+        let x = a.new_var().as_lit(false);
+        let y = a.new_var().as_lit(false);
+        let z = a.new_var().as_lit(false);
+        let formula = vec![
+            vec![!x, y, z],
+            vec![!x, y, !z],
+            vec![!x, !y, z],
+            vec![!x, !y, !z],
+        ];
+        for c in &formula {
+            assert!(a.add_clause(c));
+        }
+        assert!(a.solve_with_assumptions(&[x]).is_none());
+        assert!(a.solve_with_assumptions(&[!x]).is_some());
+        assert!(a.solve_with_assumptions(&[x, !x]).is_none());
+        assert!(a.solve().is_some());
+        let mut b = Solver::new();
+        for _ in 0..3 {
+            b.new_var();
+        }
+        for c in &formula {
+            b.add_clause(c);
+        }
+        // Explicit non-unit implied clause verifies true learnt allocation and copying.
+        assert!(a.add_learnt(&[!x, y]));
+        // A root assignment can simplify the clause away. On the fresh solver it cannot.
+        assert!(b.add_learnt(&[!x, y]));
+        assert!(b.num_learnts() > 0);
+        let mut copied = vec![];
+        b.get_learnt(b.num_learnts() - 1, &mut copied);
+        let mut expected = vec![!x, y];
+        expected.sort();
+        let mut sorted = copied.clone();
+        sorted.sort();
+        assert_eq!(sorted, expected);
+        assert!(a.add_learnt(&copied));
+        assert!(b.solve_with_assumptions(&[x]).is_none());
+        assert!(b.solve_with_assumptions(&[!x]).is_some());
+        assert!(b.add_learnt(&[!x]));
+        assert!(b.solve().is_some());
+        assert!(!b.add_learnt(&[]));
+        assert!(b.solve().is_none());
     }
 }

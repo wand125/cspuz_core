@@ -1,3 +1,5 @@
+This fork adds Numberlink SAT and parallel cube-and-conquer solvers; see [NUMLIN-FORK.md](NUMLIN-FORK.md).
+
 # cspuz_core
 CSP solver for puzzles
 
@@ -32,3 +34,6 @@ pip install .
 After running this command, a Python package `cspuz_core` will be installed.
 
 If you are running cspuz_core on Mac, please follow the instruction in [PyO3 user guide](https://pyo3.rs/v0.15.1/building_and_distribution.html#macos).
+
+Numberlink cube generation, splitting, estimates, URL decoding and board transforms use
+the dependency-free MIT `rowscan_dfs` crate in the sibling `../rowscan_dfs` directory.

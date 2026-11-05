@@ -16,6 +16,10 @@ use crate::propagators::graph_division::GraphDivisionOptions;
 pub struct Var(pub(crate) i32);
 
 impl Var {
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
     pub fn as_lit(self, negated: bool) -> Lit {
         Lit(self.0 * 2 + if negated { 1 } else { 0 })
     }
@@ -495,6 +499,42 @@ impl SAT {
         }
     }
 
+    pub fn set_random_var_freq(&mut self, freq: f64) {
+        match self {
+            SAT::Glucose(solver) => solver.set_random_var_freq(freq),
+            #[cfg(feature = "experimental-backend-glucose-rs")]
+            SAT::GlucoseRs(_) => (),
+            #[cfg(feature = "backend-external")]
+            SAT::External(_) => (), // TODO: add warning
+            #[cfg(feature = "backend-cadical")]
+            SAT::CaDiCaL(_) => (), // TODO
+        }
+    }
+
+    pub fn set_no_learn(&mut self, value: bool) {
+        match self {
+            SAT::Glucose(solver) => solver.set_no_learn(value),
+            #[cfg(feature = "experimental-backend-glucose-rs")]
+            SAT::GlucoseRs(_) => (),
+            #[cfg(feature = "backend-external")]
+            SAT::External(_) => (), // TODO: add warning
+            #[cfg(feature = "backend-cadical")]
+            SAT::CaDiCaL(_) => (), // TODO
+        }
+    }
+
+    pub fn set_reduce_db(&mut self, first: i32, inc: i32) {
+        match self {
+            SAT::Glucose(solver) => solver.set_reduce_db(first, inc),
+            #[cfg(feature = "experimental-backend-glucose-rs")]
+            SAT::GlucoseRs(_) => (),
+            #[cfg(feature = "backend-external")]
+            SAT::External(_) => (), // TODO: add warning
+            #[cfg(feature = "backend-cadical")]
+            SAT::CaDiCaL(_) => (), // TODO
+        }
+    }
+
     pub fn set_rnd_init_act(&mut self, rnd_init_act: bool) {
         match self {
             SAT::Glucose(solver) => solver.set_rnd_init_act(rnd_init_act),
@@ -541,6 +581,25 @@ impl SAT {
             #[cfg(feature = "backend-cadical")]
             SAT::CaDiCaL(solver) => solver.solve_without_model(),
         }
+    }
+
+    pub fn glucose(&mut self) -> &mut glucose::Solver {
+        match self {
+            SAT::Glucose(solver) => solver,
+            #[allow(unreachable_patterns)]
+            _ => panic!(
+                "assumptions and learned-clause access currently require the Glucose backend"
+            ),
+        }
+    }
+
+    pub fn solve_with_assumptions(&mut self, assumptions: &[Lit]) -> bool {
+        self.glucose().solve_with_assumptions(assumptions).is_some()
+    }
+
+    /// `None` when the glucose conflict budget runs out.
+    pub fn solve_with_assumptions_limited(&mut self, assumptions: &[Lit]) -> Option<bool> {
+        self.glucose().solve_with_assumptions_limited(assumptions)
     }
 
     pub(crate) unsafe fn model(&self) -> SATModel<'_> {

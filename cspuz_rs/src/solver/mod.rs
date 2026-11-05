@@ -427,6 +427,35 @@ impl<'a> Solver<'a> {
         self.solver.solve().map(|model| Model { model })
     }
 
+    /// SAT literal of a constrained BoolVar, or its constant folded value.
+    pub fn encoded_bool_literal(&self, var: BoolVar) -> Result<cspuz_core::sat::Lit, bool> {
+        self.solver.encoded_bool_literal(var.data.0)
+    }
+
+    pub fn solve_encoded_with_assumptions(
+        &mut self,
+        assumptions: &[cspuz_core::sat::Lit],
+    ) -> Option<Model<'_>> {
+        self.solver
+            .solve_encoded_with_assumptions(assumptions)
+            .map(|model| Model { model })
+    }
+
+    /// `None` when the conflict budget runs out; `Some(None)` when unsatisfiable.
+    pub fn solve_encoded_with_assumptions_limited(
+        &mut self,
+        assumptions: &[cspuz_core::sat::Lit],
+    ) -> Option<Option<Model<'_>>> {
+        self.solver
+            .solve_encoded_with_assumptions_limited(assumptions)
+            .map(|m| m.map(|model| Model { model }))
+    }
+
+    /// Raw Glucose access. The caller is responsible for literal ownership and clause validity.
+    pub fn glucose(&mut self) -> &mut cspuz_core::backend::glucose::Solver {
+        self.solver.glucose()
+    }
+
     /// Returns a partial model containing each answer key variable whose value is the same across all possible models
     /// of the CSP instance. Each such variable is assigned its decided value in the returned model.
     ///

@@ -8,7 +8,7 @@ use super::csp::{
 use super::encoder::{encode, EncodeMap};
 use super::norm_csp::NormCSP;
 use super::normalizer::{normalize, NormalizeMap};
-use super::sat::{SATModel, SAT};
+use super::sat::{Lit, SATModel, SAT};
 use crate::domain::Domain;
 use std::cell::Cell;
 
@@ -140,6 +140,15 @@ impl<'a> IntegratedSolver<'a> {
         if let Some(seed) = ret.config.glucose_random_seed {
             ret.sat.set_seed(seed);
         }
+        if let Some(freq) = ret.config.glucose_random_var_freq {
+            ret.sat.set_random_var_freq(freq);
+        }
+        if let Some((first, inc)) = ret.config.glucose_reduce_db {
+            ret.sat.set_reduce_db(first, inc);
+        }
+        if let Some(v) = ret.config.glucose_no_learn {
+            ret.sat.set_no_learn(v);
+        }
         ret
     }
 
@@ -251,6 +260,57 @@ impl<'a> IntegratedSolver<'a> {
             }),
             None => None,
         }
+    }
+
+    /// Resolve a BoolVar after `encode`. Err carries a constant folded value.
+    /// Assumption variables must occur in a constraint or be prenormalized.
+    pub fn encoded_bool_literal(&self, var: BoolVar) -> Result<Lit, bool> {
+        match self.normalize_map.get_bool_var_raw(var) {
+            ConvertedBoolVar::Lit(lit) => Ok(self
+                .encode_map
+                .get_bool_lit(lit)
+                .expect("unencoded assumption variable")),
+            _ => match self.csp.get_bool_var_status(var) {
+                BoolVarStatus::Fixed(value) => Err(value),
+                _ => panic!("unencoded assumption variable"),
+            },
+        }
+    }
+
+    /// Solve an already encoded CSP. Assumptions do not change the CSP.
+    pub fn solve_encoded_with_assumptions(&mut self, assumptions: &[Lit]) -> Option<Model<'_>> {
+        if !self.sat.solve_with_assumptions(assumptions) {
+            return None;
+        }
+        Some(Model {
+            csp: &self.csp,
+            normalize_map: &self.normalize_map,
+            norm_csp: &self.norm,
+            encode_map: &self.encode_map,
+            model: unsafe { self.sat.model() },
+        })
+    }
+
+    /// `None` when the conflict budget runs out; `Some(None)` when unsatisfiable.
+    pub fn solve_encoded_with_assumptions_limited(
+        &mut self,
+        assumptions: &[Lit],
+    ) -> Option<Option<Model<'_>>> {
+        match self.sat.solve_with_assumptions_limited(assumptions)? {
+            false => Some(None),
+            true => Some(Some(Model {
+                csp: &self.csp,
+                normalize_map: &self.normalize_map,
+                norm_csp: &self.norm,
+                encode_map: &self.encode_map,
+                model: unsafe { self.sat.model() },
+            })),
+        }
+    }
+
+    /// Raw access for incremental SAT applications; literals belong to this encoding only.
+    pub fn glucose(&mut self) -> &mut crate::backend::glucose::Solver {
+        self.sat.glucose()
     }
 
     /// Enumerate all the valid assignments of the CSP problem.

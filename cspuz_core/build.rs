@@ -17,7 +17,7 @@ fn build_glucose() {
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 
     let build_target = vec![
-        "lib/glucose/core/Solver.cc",
+        "lib/glucose_extensions/core/Solver.cc",
         "lib/glucose/utils/Options.cc",
         "lib/glucose/constraints/Graph.cc",
         "lib/glucose/constraints/OrderEncodingLinear.cc",
@@ -42,6 +42,7 @@ fn build_glucose() {
             .cpp(true)
             .file("lib/glucose_bridge.cpp")
             .files(&build_target)
+            .include("lib/glucose_extensions")
             .include("lib/glucose")
             .flag("-DGLUCOSE_FIX_OPTIONS")
             .flag("-DGLUCOSE_UNUSE_STDIO")
@@ -53,12 +54,17 @@ fn build_glucose() {
             .cpp(true)
             .file("lib/glucose_bridge.cpp")
             .files(&build_target)
+            .include("lib/glucose_extensions")
             .include("lib/glucose")
             .flag(puzzle_solver_minimal_flag)
             .warnings(false)
             .compile("calc");
     }
     println!("cargo:rerun-if-changed=lib/glucose_bridge.cpp");
+    println!("cargo:rerun-if-changed=lib/glucose_bridge.h");
+    println!("cargo:rerun-if-changed=lib/glucose_extensions/core/Solver.cc");
+    println!("cargo:rerun-if-changed=lib/glucose_extensions/core/Solver.h");
+    println!("cargo:rerun-if-changed=lib/glucose_extensions/core/SolverTypes.h");
 }
 
 fn build_cadical() {

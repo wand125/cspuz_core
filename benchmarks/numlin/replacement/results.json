@@ -1,0 +1,178 @@
+[
+  {
+    "board": "g34_nl5",
+    "version": "old",
+    "repeat": 1,
+    "wall": 408.95910623599775,
+    "user": 3222.063585,
+    "system": 3.642043,
+    "runtime_cubes": 592,
+    "generated_cubes": 476,
+    "exit": 0
+  },
+  {
+    "board": "g34_nl5",
+    "version": "new",
+    "repeat": 1,
+    "wall": 350.23396681505255,
+    "user": 2679.90653,
+    "system": 2.899808,
+    "runtime_cubes": 142,
+    "generated_cubes": 126,
+    "exit": 0
+  },
+  {
+    "board": "g34_nl5",
+    "version": "old",
+    "repeat": 2,
+    "wall": 402.9621237281244,
+    "user": 3190.7170430000006,
+    "system": 3.2276940000000005,
+    "runtime_cubes": 484,
+    "generated_cubes": 476,
+    "exit": 0
+  },
+  {
+    "board": "g34_nl5",
+    "version": "new",
+    "repeat": 2,
+    "wall": 346.23860157001764,
+    "user": 2639.762374,
+    "system": 3.2756999999999987,
+    "runtime_cubes": 142,
+    "generated_cubes": 126,
+    "exit": 0
+  },
+  {
+    "board": "p2592",
+    "version": "old",
+    "repeat": 1,
+    "wall": 30.73056018911302,
+    "user": 219.72916199999963,
+    "system": 0.3269460000000013,
+    "runtime_cubes": 595,
+    "generated_cubes": 595,
+    "exit": 0
+  },
+  {
+    "board": "p2592",
+    "version": "new",
+    "repeat": 1,
+    "wall": 22.20138371293433,
+    "user": 155.07439599999998,
+    "system": 0.3285289999999996,
+    "runtime_cubes": 146,
+    "generated_cubes": 146,
+    "exit": 0
+  },
+  {
+    "board": "p2592",
+    "version": "old",
+    "repeat": 2,
+    "wall": 28.7230390899349,
+    "user": 218.43389699999898,
+    "system": 0.26227800000000023,
+    "runtime_cubes": 595,
+    "generated_cubes": 595,
+    "exit": 0
+  },
+  {
+    "board": "p2592",
+    "version": "new",
+    "repeat": 2,
+    "wall": 22.21547980210744,
+    "user": 155.05647800000042,
+    "system": 0.3314199999999996,
+    "runtime_cubes": 146,
+    "generated_cubes": 146,
+    "exit": 0
+  },
+  {
+    "board": "p7933",
+    "version": "old",
+    "repeat": 1,
+    "wall": 28.755812394898385,
+    "user": 203.6515840000011,
+    "system": 0.3483199999999993,
+    "runtime_cubes": 589,
+    "generated_cubes": 556,
+    "exit": 0
+  },
+  {
+    "board": "p7933",
+    "version": "new",
+    "repeat": 1,
+    "wall": 28.234861920122057,
+    "user": 142.7247439999992,
+    "system": 0.3238810000000001,
+    "runtime_cubes": 151,
+    "generated_cubes": 147,
+    "exit": 0
+  },
+  {
+    "board": "p7933",
+    "version": "old",
+    "repeat": 2,
+    "wall": 28.756102154031396,
+    "user": 205.56956999999966,
+    "system": 0.28642699999999977,
+    "runtime_cubes": 589,
+    "generated_cubes": 556,
+    "exit": 0
+  },
+  {
+    "board": "p7933",
+    "version": "new",
+    "repeat": 2,
+    "wall": 28.252856998005882,
+    "user": 140.23681899999974,
+    "system": 0.3508070000000014,
+    "runtime_cubes": 151,
+    "generated_cubes": 147,
+    "exit": 0
+  },
+  {
+    "board": "p10157",
+    "version": "old",
+    "repeat": 1,
+    "wall": 23.051364509854466,
+    "user": 171.83870900000147,
+    "system": 0.2918079999999996,
+    "runtime_cubes": 749,
+    "generated_cubes": 749,
+    "exit": 0
+  },
+  {
+    "board": "p10157",
+    "version": "new",
+    "repeat": 1,
+    "wall": 14.167020570021123,
+    "user": 104.37083499999972,
+    "system": 0.26153799999999805,
+    "runtime_cubes": 126,
+    "generated_cubes": 126,
+    "exit": 0
+  },
+  {
+    "board": "p10157",
+    "version": "old",
+    "repeat": 2,
+    "wall": 22.976433946052566,
+    "user": 172.53051500000038,
+    "system": 0.3238770000000031,
+    "runtime_cubes": 749,
+    "generated_cubes": 749,
+    "exit": 0
+  },
+  {
+    "board": "p10157",
+    "version": "new",
+    "repeat": 2,
+    "wall": 14.166806627996266,
+    "user": 104.38316899999882,
+    "system": 0.3305899999999973,
+    "runtime_cubes": 126,
+    "generated_cubes": 126,
+    "exit": 0
+  }
+]

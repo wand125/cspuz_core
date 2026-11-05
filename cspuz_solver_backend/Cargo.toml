@@ -14,6 +14,8 @@ experimental-backend-glucose-rs = ["cspuz_rs/experimental-backend-glucose-rs", "
 [dependencies]
 cspuz_rs = { path = "../cspuz_rs", default-features = false }
 cspuz_rs_puzzles = { path = "../cspuz_rs_puzzles", default-features = false }
+json = "0.12.4"
+rowscan_dfs = { git = "https://github.com/wand125/rowscan_dfs", rev = "34d6d4f22022179586947be8d2b2a94101dc9a88" }
 
 [dev-dependencies]
 cspuz_rs = { path = "../cspuz_rs", default-features = false, features = ["test-support"] }

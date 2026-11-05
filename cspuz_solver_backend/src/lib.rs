@@ -5,6 +5,9 @@ extern crate cspuz_rs;
 pub mod board;
 mod puzzle;
 mod uniqueness;
+mod numlin_json;
+mod numlin_web;
+pub mod cubes;
 
 #[cfg(test)]
 pub mod testing;

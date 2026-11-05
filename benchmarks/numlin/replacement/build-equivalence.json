@@ -1,0 +1,30 @@
+{
+  "sha256": {
+    "old": "349bca6efbdadbf598be0f2f77c95d194fa04b4bc068a48ecb4228e31680c848",
+    "new_measured": "edc22be41e0381e86590d7e5595899c1e6a60ecd010f2bc6cb997bca1e3a0498",
+    "new_final": "9157eca1ea940b21866ea47e1f4584c52efbdb34b7afca911de6e28069716ad7"
+  },
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "default_frontier_checks": [
+    {
+      "board": "g34_nl5",
+      "identical": true,
+      "cubes": 126
+    },
+    {
+      "board": "p2592",
+      "identical": true,
+      "cubes": 146
+    },
+    {
+      "board": "p7933",
+      "identical": true,
+      "cubes": 147
+    },
+    {
+      "board": "p10157",
+      "identical": true,
+      "cubes": 126
+    }
+  ]
+}

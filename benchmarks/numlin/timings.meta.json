@@ -1,0 +1,13 @@
+{
+  "started_utc": "2026-11-03T01:21:28.585550+00:00",
+  "platform": "macOS-26.2-arm64-arm-64bit",
+  "machine": "arm64",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "timeout_seconds": 600,
+  "max_answers": 2,
+  "repetitions": 1,
+  "binary_sha256": {
+    "numlin_sat": "3c65936dd0e8b3300b6c049e4d6367c7156c09fcc6ccfb9c9a38ab75a545f03c",
+    "numlin_sat_par": "cb03125bdaa047f0d1f9fc6d9a2d1a17ae966ab2e5baea04fb4e7e0f54d2c3a8"
+  }
+}

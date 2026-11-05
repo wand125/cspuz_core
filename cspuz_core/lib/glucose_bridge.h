@@ -1,6 +1,6 @@
 #include <cstdint>
 
-#include "glucose/core/Constraint.h"
+#include "core/Constraint.h"
 
 namespace Glucose {
 
@@ -31,6 +31,22 @@ int32_t Glucose_NewVar(Glucose::Solver* solver);
 int32_t Glucose_NewNamedVar(Glucose::Solver* solver, const char* name);
 int32_t Glucose_AddClause(Glucose::Solver* solver, int32_t* lits, int32_t n_lits);
 int32_t Glucose_Solve(Glucose::Solver* solver);
+int32_t Glucose_SolveWithAssumptions(Glucose::Solver*, const int32_t*, int32_t);
+void Glucose_SetConfBudget(Glucose::Solver*, int64_t);
+void Glucose_BudgetOff(Glucose::Solver*);
+void Glucose_Set_random_var_freq(Glucose::Solver*, double);
+void Glucose_Set_reduce_db(Glucose::Solver*, int32_t, int32_t);
+void Glucose_Set_no_learn(Glucose::Solver*, int32_t);
+void Glucose_Interrupt(Glucose::Solver*);
+void Glucose_ClearInterrupt(Glucose::Solver*);
+uint64_t Glucose_EncodingFingerprint(Glucose::Solver*);
+int32_t Glucose_NumLearnts(Glucose::Solver*);
+int32_t Glucose_GetLearnt(Glucose::Solver*, int32_t, int32_t*);
+int32_t Glucose_AddLearnt(Glucose::Solver*, const int32_t*, int32_t);
+void Glucose_TrackDependencies(Glucose::Solver*);
+int32_t Glucose_AddCubeUnit(Glucose::Solver*, int32_t);
+int32_t Glucose_GetIndependentLearnt(Glucose::Solver*, int32_t, int32_t*, int32_t, uint32_t);
+uint64_t Glucose_DependencyLearntCount(Glucose::Solver*, int32_t);
 int32_t Glucose_NumVar(const Glucose::Solver* solver);
 int32_t Glucose_GetModelValueVar(const Glucose::Solver* solver, int32_t var);
 void Glucose_SetPolarity(Glucose::Solver* solver, int32_t var, int32_t polarity);
