@@ -76,6 +76,32 @@ only cube-independent learned clauses; it is opt-in. `--check-shared` verifies
 exported clauses against a separate base model, and `--verify-cubes` compares
 cube answers with fresh models.
 
+### DFS prefilter and partition verification (2026-11-07)
+
+```sh
+target/release/numlin_sat_cube --threads 8 --dfs-ratio 300 URL
+target/release/numlin_sat_cube --threads 8 --dfs-budget 1000000 --dfs-recurse 2 URL
+target/release/numlin_sat_cube --threads 8 --balance-verify 10 --verify-floor 1e6 URL
+```
+
+`--dfs-budget STEPS` runs the row-scan DFS (`rowscan_dfs::solve_cube_budget`) on
+each cube before its SAT solve; a cube the DFS exhausts with no solution is
+closed without SAT, while a cube with solutions still goes to SAT so that the
+canonical count comes from one engine. `--dfs-ratio R` sets the budget to
+`R x estimate` (`--dfs-min` floors it, `--dfs-budget` caps it). `--dfs-recurse D`
+splits a budget-exhausted cube and retries its children up to depth D
+(`--dfs-grow F` scales the budget per depth). Measured on 20x20 boards, `--dfs-ratio 300`
+cuts wall time by 54-76%; on 25x25 boards where SAT wins it is a loss (+17..+79%),
+so the default is off and the choice belongs to the board, not the cube.
+
+`--balance-verify F` now re-estimates a suspicious cube by splitting it into
+`--verify-children N` (default 32) parts and summing their estimates, and by the
+DFS progress estimate after `--verify-progress-steps B` (default 100000) steps;
+either exceeding `F x` the parent replaces it by its children. A depth-0 victim
+that has run longer than `--heavy-steal-secs S` (600) or whose children estimate
+above it is stolen into `4 x threads` parts (`--heavy-steal-parts`). Stolen
+parts queue behind earlier split groups, heaviest first within a group.
+
 ## Web backend
 
 `numlin_web.rs` and `numlin_json.rs` expose `numlin_cubes`, `numlin_solve_cube`,
