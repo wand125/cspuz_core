@@ -1,0 +1,1 @@
+{"width":15,"height":15,"direction":0,"cubes":[{"edges":[[0,1,true]],"next":0,"weight":0.0},{"edges":[[0,1,false],[1,0,true]],"next":0,"weight":0.0},{"edges":[[0,1,false],[1,0,false]],"next":0,"weight":0.0}],"solutions_while_splitting":0,"steps":0,"elapsed_ms":0.0}

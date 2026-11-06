@@ -104,7 +104,7 @@ fn generate(url: &str, v: &Json) -> Result<String, String> {
     } else if o.balance > 0.0 {
         // The logical worker count controls the balancing limit. solver.rs forces only
         // the estimator's execution concurrency to one on wasm, preserving native cubes.
-        generate_cubes_balanced_verify_floor(p.clone(), o.cubes, o.threads, o.balance, 0.0, o.balance_verify, o.verify_min, o.verify_floor, o.probes, 1<<15, &o.cube)
+        generate_cubes_balanced_verify_floor(p.clone(), o.cubes, o.threads, o.balance, 0.0, o.balance_verify, o.verify_min, o.verify_floor, 32, 100_000, o.probes, 1<<15, &o.cube)
     } else {
         // Unlike generate_cubes_at(), retain solutions completed by the initial split.
         split_cube(p.clone(), &Cube { edges: vec![], next: 0, weight: 0.0 }, o.cubes, &o.cube)

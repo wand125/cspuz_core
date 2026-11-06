@@ -1,4 +1,4 @@
-//! Native driver for the SAT-based Numberlink solver.
+//! Native driver for the SAT-based Numberlink solver used by cspuz-solver2 (web).
 //! usage: numlin_sat [--rules off|diag|wedge|g2|diag,wedge,g2] [--full-cover] [--short-only] [--log-encoding] [--max N] URL   (N = max answers to enumerate; default 2 = uniqueness check)
 use cspuz_rs_puzzles::puzzles::numlin::{
     NumlinAssumptionSolver,

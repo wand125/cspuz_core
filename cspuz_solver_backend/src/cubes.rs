@@ -1,7 +1,10 @@
 //! Row-scan cube generation and the SAT driver's estimate/verification policy.
 use rowscan_dfs::{cubes, Puzzle};
-pub use rowscan_dfs::{Cube, Options as SolveOptions};
-use std::{collections::HashSet, ops::Index};
+pub use rowscan_dfs::{
+    estimate_cube_progress, solve_cube_budget, Cube, CubeOutcome, CubeProgress,
+    Options as SolveOptions,
+};
+use std::{collections::HashSet, ops::Index, time::Instant};
 
 pub const TRANSFORM_NAMES: [&str; 8] = [
     "id",
@@ -139,6 +142,8 @@ pub fn generate_cubes_balanced_verify_floor(
     verify_factor: f64,
     verify_min: f64,
     floor: f64,
+    verify_children: usize,
+    verify_progress_steps: u64,
     probes: usize,
     max_cubes: usize,
     options: &SolveOptions,
@@ -166,6 +171,8 @@ pub fn generate_cubes_balanced_verify_floor(
         verify_factor,
         verify_min,
         floor,
+        verify_children,
+        verify_progress_steps,
         probes,
         max_cubes,
         options,
@@ -185,6 +192,8 @@ pub fn balance_cubes(
     verify_factor: f64,
     verify_min: f64,
     floor: f64,
+    verify_children: usize,
+    verify_progress_steps: u64,
     probes: usize,
     max_cubes: usize,
     options: &SolveOptions,
@@ -195,6 +204,9 @@ pub fn balance_cubes(
     let initial_mean = items.iter().map(|c| c.weight).sum::<f64>() / items.len().max(1) as f64;
     let mut blocked = HashSet::new();
     let mut verified = HashSet::new();
+    let mut checked = 0;
+    let mut replaced = 0;
+    let mut verify_elapsed = std::time::Duration::ZERO;
     for pass in 0..7 {
         for _ in 0..201 {
             let total = items.iter().map(|c| c.weight).sum::<f64>();
@@ -236,6 +248,7 @@ pub fn balance_cubes(
         if verify_factor <= 0.0 || pass == 6 {
             break;
         }
+        let verify_started = Instant::now();
         let threshold = (verify_min * items.iter().map(|c| c.weight).sum::<f64>()
             / items.len().max(1) as f64)
             .max(floor);
@@ -244,8 +257,36 @@ pub fn balance_cubes(
         let mut children = Vec::new();
         for parent in items {
             if parent.weight >= threshold && !verified.contains(&parent.edges) {
-                let (parts, extra) = split_cube(problem.clone(), &parent, 2, options);
-                families.push((parent, parts.len(), extra));
+                let progress = (verify_progress_steps > 0).then(|| {
+                    estimate_cube_progress(
+                        &problem.puzzle,
+                        &parent,
+                        verify_progress_steps,
+                        &SolveOptions {
+                            memo_bits: 0,
+                            ..*options
+                        },
+                    )
+                });
+                if let Some(result) = &progress {
+                    if result.finished {
+                        checked += 1;
+                        eprintln!(
+                            "[verify] pass {}: cube est {:.2e} -> finished, progress est {:.2e} ({} steps, {:.6}%): kept",
+                            pass + 1, parent.weight, result.estimated_total,
+                            result.steps, 100.0 * result.progress
+                        );
+                        let mut parent = parent;
+                        parent.weight = result.steps as f64;
+                        // Retain this cheap, exhausted cube for the normal solve/count path.
+                        blocked.insert(parent.edges.clone());
+                        verified.insert(parent.edges.clone());
+                        accepted.push(parent);
+                        continue;
+                    }
+                }
+                let (parts, extra) = split_cube(problem.clone(), &parent, verify_children, options);
+                families.push((parent, parts.len(), extra, progress));
                 children.extend(parts);
             } else {
                 accepted.push(parent);
@@ -255,20 +296,33 @@ pub fn balance_cubes(
         estimate_all(problem, &mut children, threads, probes, seed, options);
         let mut children = children.into_iter();
         let mut changed = false;
-        for (mut parent, count, extra) in families {
+        for (mut parent, count, extra, progress) in families {
             let parts: Vec<_> = children.by_ref().take(count).collect();
             let sum = parts.iter().map(|c| c.weight).sum::<f64>();
+            checked += 1;
             let replace = count == 0
                 || (count > 1
-                    && sum > verify_factor * parent.weight
+                    && (sum > verify_factor * parent.weight
+                        || progress
+                            .as_ref()
+                            .is_some_and(|p| p.estimated_total > verify_factor * parent.weight))
                     && accepted.len() + count < max_cubes);
+            let progress_log = progress.as_ref().map_or_else(String::new, |p| {
+                format!(
+                    ", progress est {:.2e} ({} steps, {:.6}%)",
+                    p.estimated_total,
+                    p.steps,
+                    100.0 * p.progress
+                )
+            });
             eprintln!(
-                "[verify] pass {}: cube est {:.2e} -> {count} children sum {sum:.2e}: {}",
+                "[verify] pass {}: cube est {:.2e} -> partition {sum:.2e} ({count} children){progress_log}: {}",
                 pass + 1,
                 parent.weight,
                 if replace { "replaced" } else { "kept" }
             );
             if replace {
+                replaced += 1;
                 found += extra;
                 accepted.extend(parts);
                 changed = true;
@@ -279,9 +333,13 @@ pub fn balance_cubes(
             }
         }
         items = accepted;
+        verify_elapsed += verify_started.elapsed();
         if !changed {
             break;
         }
+    }
+    if verify_factor > 0.0 {
+        eprintln!("[verify] checked {checked}, replaced {replaced}, in {verify_elapsed:.2?}");
     }
     items.sort_by(|a, b| b.weight.total_cmp(&a.weight));
     (items, found)
@@ -312,10 +370,11 @@ mod tests {
 
     #[test]
     fn balancing_preserves_completed_answers_and_partition() {
-        for url in [
-            "https://puzz.link/p?numlin/15/15/z5g2h9l3o3rck1x9jch1h6kazual4gbi4j8ybi6l7g2m8n5h7z",
-            "https://puzz.link/p?numlin/15/15/zg5do9-10n73h7l3h5jd4iaj-11q6hbz1k-10veap9ofm-11g6nfp8i1g2eh2ic4ici8gbw",
-        ] {
+        for line in include_str!("../../../rowscan_dfs/tests/fixtures/urls.txt")
+            .lines()
+            .take(2)
+        {
+            let (_, url) = line.split_once(' ').unwrap();
             let p = Problem::from_url(url, 0).unwrap();
             for (minimum, mean, verify) in
                 [(0, 0.0, 0.0), (3, 2.0, 0.0), (3, 0.0, 0.1), (3, 0.0, 10.0)]
@@ -329,6 +388,8 @@ mod tests {
                     verify,
                     0.0,
                     0.0,
+                    32,
+                    0,
                     3,
                     512,
                     &SolveOptions::default(),
@@ -346,12 +407,107 @@ mod tests {
             2.0,
             0.0,
             0.0,
+            32,
+            0,
             3,
             32,
             &SolveOptions::default(),
         );
         assert!(parts.is_empty());
         assert_eq!(found, 1);
+    }
+
+    fn ex3() -> Problem {
+        let url = include_str!("../../../rowscan_dfs/tests/fixtures/urls.txt")
+            .lines()
+            .find_map(|line| line.strip_prefix("ex3 "))
+            .unwrap();
+        Problem::from_url(url, 0).unwrap()
+    }
+
+    #[test]
+    fn verification_partition_sixteen_preserves_found_and_adds_cubes() {
+        let p = ex3();
+        let options = strong_options();
+        let root = Cube {
+            edges: vec![],
+            next: 0,
+            weight: 0.0,
+        };
+        let mut initial = vec![root];
+        estimate_all(&p, &mut initial, 1, 3, 0x9e37_79b9_7f4a_7c15, &options);
+        let floor = initial[0].weight;
+        let verify = |children| {
+            balance_cubes(
+                &p,
+                initial.clone(),
+                0,
+                2,
+                0.0,
+                0.0,
+                0.01,
+                0.0,
+                floor,
+                children,
+                0,
+                3,
+                512,
+                &options,
+            )
+        };
+        let (two, found_two) = verify(2);
+        let (sixteen, found_sixteen) = verify(16);
+        assert!(!two.is_empty());
+        assert!(
+            sixteen.len() > two.len(),
+            "{} vs {}",
+            sixteen.len(),
+            two.len()
+        );
+        assert_eq!(found_sixteen, found_two);
+        assert_eq!(found_two + count(&p, &two), 1);
+        assert_eq!(found_sixteen + count(&p, &sixteen), 1);
+    }
+
+    #[test]
+    fn progress_can_trigger_replacement_and_finished_cubes_stay_cheap() {
+        let p = ex3();
+        let options = strong_options();
+        let root = Cube {
+            edges: vec![],
+            next: 0,
+            weight: 0.0,
+        };
+        let verify = |steps| {
+            balance_cubes(
+                &p,
+                vec![root.clone()],
+                0,
+                1,
+                0.0,
+                0.0,
+                1e100,
+                0.0,
+                0.0,
+                2,
+                steps,
+                3,
+                3,
+                &options,
+            )
+        };
+        let (disabled, _) = verify(0);
+        assert_eq!(disabled.len(), 1);
+        // One step has consumed no alternatives: infinity must trigger the split.
+        let (partial, found) = verify(1);
+        assert!(partial.len() > disabled.len());
+        assert_eq!(found + count(&p, &partial), 1);
+        let (finished, found) = verify(u64::MAX);
+        assert_eq!(finished.len(), 1);
+        assert_eq!(found, 0); // The retained cube still owns its solution.
+        let progress = estimate_cube_progress(&p.puzzle, &root, u64::MAX, &options);
+        assert!(progress.finished);
+        assert_eq!(finished[0].weight, progress.steps as f64);
     }
 
     #[test]
